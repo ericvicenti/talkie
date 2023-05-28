@@ -13,7 +13,7 @@ rws.addEventListener("open", (conn) => {
 type TalkieCommand = "Record" | "Abort" | "Save" | "Query";
 
 function sendCommand(cmd: TalkieCommand) {
-  rws.send(JSON.stringify({ cmd }));
+  rws.send(JSON.stringify(cmd));
 }
 
 rws.addEventListener("message", (event) => {
