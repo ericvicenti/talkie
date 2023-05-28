@@ -1,0 +1,14 @@
+{
+  "dependencies": {
+    "@types/react": "^18.2.7",
+    "parcel": "^2.9.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "reconnecting-websocket": "^4.4.0",
+    "typescript": "^5.0.4",
+    "websocket": "^1.0.34"
+  },
+  "devDependencies": {
+    "process": "^0.11.10"
+  }
+}

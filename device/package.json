@@ -1,0 +1,14 @@
+{
+  "scripts": {
+    "talkie": "esr src/talkie.ts"
+  },
+  "dependencies": {
+    "@picovoice/pvrecorder-node": "^1.1.2",
+    "@types/node": "^20.2.5",
+    "@types/websocket": "^1.0.5",
+    "esbuild": "^0.17.19",
+    "esbuild-runner": "^2.2.2",
+    "typescript": "^5.0.4",
+    "websocket": "^1.0.34"
+  }
+}
