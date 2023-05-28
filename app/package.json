@@ -1,9 +1,16 @@
 {
+  "scripts": {
+    "dev": "parcel src/index.html"
+  },
   "dependencies": {
+    "@emotion/react": "^11.11.0",
+    "@mantine/core": "^6.0.11",
+    "@mantine/hooks": "^6.0.11",
     "@types/react": "^18.2.7",
     "parcel": "^2.9.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-hot-toast": "^2.4.1",
     "reconnecting-websocket": "^4.4.0",
     "typescript": "^5.0.4",
     "websocket": "^1.0.34"

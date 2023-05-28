@@ -1,28 +1,75 @@
 import React, { useEffect } from "react";
+import { Button, MantineProvider } from "@mantine/core";
+import toast, { Toaster } from "react-hot-toast";
 
 import ReconnectingWebSocket from "reconnecting-websocket";
 
-const rws = new ReconnectingWebSocket("ws://talkie:3000");
+const rws = new ReconnectingWebSocket("ws://talkie:3000", [], {});
 
-rws.addEventListener("open", () => {
-  rws.send("hello!");
+rws.addEventListener("open", (conn) => {
+  toast.success("Connected to Talkie!");
 });
 
+type TalkieCommand = "Record" | "Abort" | "Save" | "Query";
+
+function sendCommand(cmd: TalkieCommand) {
+  rws.send(JSON.stringify({ cmd }));
+}
+
 rws.addEventListener("message", (event) => {
-  console.log("Got data from pi!", event.data);
+  toast("Got data from pi!", event.data);
 });
 
 rws.addEventListener("close", (event) => {
-  console.log("Connection closed!");
+  toast.error("Connection closed!");
 });
 
 rws.addEventListener("error", (event) => {
-  console.log("Connection closed!");
+  toast.error("Connection error!");
 });
 
+function Dashboard() {
+  return (
+    <>
+      <Button
+        onClick={() => {
+          sendCommand("Record");
+        }}
+      >
+        Record
+      </Button>
+      <Button
+        onClick={() => {
+          sendCommand("Abort");
+        }}
+      >
+        Abort
+      </Button>
+      <Button
+        onClick={() => {
+          sendCommand("Query");
+        }}
+      >
+        Query
+      </Button>
+      <Button
+        onClick={() => {
+          sendCommand("Save");
+        }}
+      >
+        Save
+      </Button>
+    </>
+  );
+}
+
 export function App() {
-  useEffect(() => {
-    console.log("Hello world!");
-  }, []);
-  return <h1>Hello world!</h1>;
+  return (
+    <>
+      <MantineProvider withGlobalStyles withNormalizeCSS>
+        <Dashboard />
+      </MantineProvider>
+      <Toaster />
+    </>
+  );
 }
