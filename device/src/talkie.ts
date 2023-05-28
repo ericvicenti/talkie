@@ -6,56 +6,6 @@ import http from "http";
 import { join } from "path";
 import { play } from "./audio";
 
-// let isInterrupted = false;
-
-// async function runDemo() {
-//   let rawOutputPath = "/home/pi/test/test.wav";
-
-//   const devices = PvRecorder.getAudioDevices();
-//   for (let i = 0; i < devices.length; i++) {
-//     console.log(`index: ${i}, device name: ${devices[i]}`);
-//   }
-
-//   const frameLength = 512;
-//   const recorder = new PvRecorder(-1, 512);
-//   console.log(`Using PvRecorder version: ${recorder.version}`);
-
-//   recorder.start();
-//   console.log(`Using device: ${recorder.getSelectedDevice()}`);
-
-//   let stream;
-//   if (rawOutputPath !== null) {
-//     stream = fs.createWriteStream(rawOutputPath, { flags: "w" });
-//   }
-
-//   while (!isInterrupted) {
-//     const pcm = await recorder.read();
-//     if (rawOutputPath !== null) {
-//       stream.write(Buffer.from(pcm.buffer));
-//     }
-//   }
-
-//   if (rawOutputPath !== null) {
-//     stream.close();
-//   }
-
-//   console.log("Stopping...");
-//   recorder.release();
-// }
-
-// // setup interrupt
-// process.on("SIGINT", function () {
-//   isInterrupted = true;
-// });
-
-// (async function () {
-//   try {
-//     await runDemo();
-//   } catch (e) {
-//     console.error(e.toString());
-//   }
-// })();
-
 var server = http.createServer(function (request, response) {
   console.log(new Date() + " Received request for " + request.url);
   response.writeHead(404);
@@ -80,12 +30,9 @@ const media = {
   startup: "FX-Startup.wav",
 } as const;
 
-console.log("hiooo", __dirname, process.cwd());
-
 function playSoundEffect(key: keyof typeof media) {
   const fileName = media[key];
   const soundPath = join(__dirname, "..", "media", fileName);
-  console.log("playing", soundPath);
   play(soundPath);
 }
 
@@ -115,7 +62,7 @@ async function talkieRecord() {
   const recordId = new Date().toISOString();
   if (talkieState.isRecording) return;
   audioWriteStream = fs.createWriteStream(
-    `/home/pi/recordings/recording-${recordId}.wtf`,
+    `/home/pi/recordings/recording-${recordId}.pcm`,
     { flags: "w" }
   );
   recorder.start();
@@ -125,14 +72,11 @@ async function talkieRecord() {
     if (!talkieState.isRecording) return;
     recordTick = recordTick.then(async () => {
       if (!talkieState.isRecording) return;
-      console.log("tick about to read");
       const pcm = await recorder.read();
       recordedAudioBuffer = Buffer.concat([
         recordedAudioBuffer,
         Buffer.from(pcm.buffer),
       ]);
-
-      console.log("tick did read");
       audioWriteStream?.write(Buffer.from(pcm.buffer));
       handleTick();
     });
@@ -140,11 +84,12 @@ async function talkieRecord() {
 
   completeRecord = async () => {
     await recordTick;
-    console.log("record tick done.1");
-    recorder.release();
+    recorder.stop();
     if (audioWriteStream) {
-      const wavData = wavConverter.encodeWav(audioWriteStream, {});
       audioWriteStream.close();
+    }
+    if (recordedAudioBuffer) {
+      const wavData = wavConverter.encodeWav(recordedAudioBuffer, {});
       await fs.writeFile(
         `/home/pi/recordings/recording-${recordId}.wav`,
         wavData
@@ -152,40 +97,31 @@ async function talkieRecord() {
     }
   };
 
-  //   if (rawOutputPath !== null) {
-  //     stream.close();
-  //   }
-
   playSoundEffect("record");
   updateTalkieState((s) => ({ ...s, isRecording: true }));
   handleTick();
 }
 
-function closeRecording() {
-  console.log("closeRecording");
+async function closeRecording() {
   updateTalkieState((v) => ({ ...v, isRecording: false }));
-  console.log("about to release");
 
-  if (completeRecord) asyncify(completeRecord());
+  if (completeRecord) return await completeRecord();
 
-  // const wavData = audioWriteStream.encodeWav(pcmData)
+  return null;
 }
 
 async function talkieAbort() {
-  console.log("talkieAbort");
-  closeRecording();
+  await closeRecording();
   playSoundEffect("discard");
 }
 
 async function talkieQuery() {
-  console.log("talkieQuery");
-  closeRecording();
+  await closeRecording();
   playSoundEffect("query");
 }
 
 async function talkieSave() {
-  console.log("talkieSave");
-  closeRecording();
+  await closeRecording();
   playSoundEffect("save");
 }
 
