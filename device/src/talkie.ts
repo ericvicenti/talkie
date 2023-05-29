@@ -7,9 +7,7 @@ import { join } from "path";
 import { play, playMp3 } from "./audio";
 import { Gpio } from "onoff";
 import * as dotenv from "dotenv";
-import { Leopard } from "@picovoice/leopard-node";
 import { Configuration, OpenAIApi } from "openai";
-import { readFile } from "fs";
 import { Readable } from "node:stream";
 
 dotenv.config();
@@ -17,10 +15,6 @@ dotenv.config();
 const openai = new OpenAIApi(
   new Configuration({ apiKey: process.env.OPENAI_KEY })
 );
-
-const leopard = new Leopard(process.env.PICOVOICE_KEY || "", {
-  modelPath: "/home/pi/listen/leopard.pv",
-});
 
 var server = http.createServer(function (request, response) {
   console.log(new Date() + " Received request for " + request.url);
