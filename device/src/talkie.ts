@@ -7,8 +7,20 @@ import { join } from "path";
 import { play, playMp3 } from "./audio";
 import { Gpio } from "onoff";
 import * as dotenv from "dotenv";
+import { Leopard } from "@picovoice/leopard-node";
+import { Configuration, OpenAIApi } from "openai";
+import { readFile } from "fs";
+import { Readable } from "node:stream";
 
 dotenv.config();
+
+const openai = new OpenAIApi(
+  new Configuration({ apiKey: process.env.OPENAI_KEY })
+);
+
+const leopard = new Leopard(process.env.PICOVOICE_KEY || "", {
+  modelPath: "/home/pi/listen/leopard.pv",
+});
 
 var server = http.createServer(function (request, response) {
   console.log(new Date() + " Received request for " + request.url);
@@ -70,7 +82,9 @@ let audioWriteStream: fs.WriteStream | null = null;
 
 let recordTick = Promise.resolve();
 
-let completeRecord: (() => Promise<void>) | null = null;
+let completeRecord:
+  | (() => Promise<{ id: string; wavPath: string } | null>)
+  | null = null;
 
 async function talkieRecord() {
   playSoundEffect("record");
@@ -107,11 +121,14 @@ async function talkieRecord() {
     }
     if (recordedAudioBuffer) {
       const wavData = wavConverter.encodeWav(recordedAudioBuffer, {});
-      await fs.writeFile(
-        `/home/pi/recordings/recording-${recordId}.wav`,
-        wavData
-      );
+      const wavPath = `/home/pi/recordings/recording-${recordId}.wav`;
+      await fs.writeFile(wavPath, wavData);
+      return {
+        id: recordId,
+        wavPath,
+      };
     }
+    return null;
   };
 
   updateTalkieState((s) => ({ ...s, isRecording: true }));
@@ -165,8 +182,21 @@ async function talkieAbort() {
 }
 
 async function talkieQuery() {
-  await closeRecording();
-  playSoundEffect("query");
+  const recording = await closeRecording();
+  if (!recording) return;
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  const audioReadStream = Readable.from(await fs.readFile(recording.wavPath));
+  // @ts-ignore
+  audioReadStream.path = "conversation.wav";
+  const {
+    data: { text },
+  } = await openai.createTranscription(
+    // @ts-ignore
+    audioReadStream,
+    "whisper-1"
+  );
+  // todo, AI shit. right now, echo:
+  sayText(text);
 }
 
 async function talkieSave() {
