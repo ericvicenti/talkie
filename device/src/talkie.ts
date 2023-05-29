@@ -4,7 +4,11 @@ import { server as WebSocketServer } from "websocket";
 import wavConverter from "wav-converter";
 import http from "http";
 import { join } from "path";
-import { play } from "./audio";
+import { play, playMp3 } from "./audio";
+import { Gpio } from "onoff";
+import * as dotenv from "dotenv";
+
+dotenv.config();
 
 var server = http.createServer(function (request, response) {
   console.log(new Date() + " Received request for " + request.url);
@@ -21,6 +25,17 @@ const wsServer = new WebSocketServer({
 });
 
 type TalkieCommand = "Record" | "Abort" | "Save" | "Query";
+
+const testButton = new Gpio(14, "in", "both", {
+  debounceTimeout: 20,
+});
+
+const bztVoiceId = "8rhGl4iiilgahpSoYwwp";
+
+testButton.watch((err, isUp) => {
+  console.log("Button Interrupt! " + (isUp ? "(up)" : "(down)"));
+  if (isUp) talkieRecord();
+});
 
 const media = {
   discard: "FX-Discard.wav",
@@ -58,6 +73,8 @@ let recordTick = Promise.resolve();
 let completeRecord: (() => Promise<void>) | null = null;
 
 async function talkieRecord() {
+  playSoundEffect("record");
+
   const recordStartTime = Date.now();
   const recordId = new Date().toISOString();
   if (talkieState.isRecording) return;
@@ -97,7 +114,6 @@ async function talkieRecord() {
     }
   };
 
-  playSoundEffect("record");
   updateTalkieState((s) => ({ ...s, isRecording: true }));
   handleTick();
 }
@@ -110,9 +126,42 @@ async function closeRecording() {
   return null;
 }
 
+async function sayText(text: string) {
+  const sayingId = new Date().toISOString();
+  const sayingPath = `/home/pi/say/${sayingId}.mp3`;
+  const url = `https://api.elevenlabs.io/v1/text-to-speech/${bztVoiceId}`;
+  const res = await fetch(url, {
+    headers: {
+      "content-type": "application/json",
+      "xi-api-key": process.env.ELEVENLABS_KEY || "",
+    },
+    method: "post",
+    body: JSON.stringify({
+      text,
+      model_id: "eleven_monolingual_v1",
+      voice_settings: {
+        stability: 0.7,
+        similarity_boost: 0,
+      },
+    }),
+  });
+  if (res.status !== 200) {
+    console.error(await res.text());
+    throw new Error("Failed to say");
+  }
+  const blob = await res.blob();
+  const arrayBuffer = await blob.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  await fs.writeFile(sayingPath, buffer);
+
+  playMp3(sayingPath);
+}
+
 async function talkieAbort() {
   await closeRecording();
   playSoundEffect("discard");
+
+  sayText("ooh push my buttons, big brother");
 }
 
 async function talkieQuery() {
