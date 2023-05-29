@@ -7,10 +7,16 @@ import { join } from "path";
 import { play, playMp3 } from "./audio";
 import { Gpio } from "onoff";
 import * as dotenv from "dotenv";
-import { Configuration, OpenAIApi } from "openai";
+import { ChatCompletionRequestMessage, Configuration, OpenAIApi } from "openai";
 import { Readable } from "node:stream";
 
 dotenv.config();
+
+const makeMessage = (role, content) => ({ role, content });
+
+let history: ChatCompletionRequestMessage[] = [
+  { role: "system", content: "you are an AI assistant. answer tersely" },
+];
 
 const openai = new OpenAIApi(
   new Configuration({ apiKey: process.env.OPENAI_KEY })
@@ -177,6 +183,9 @@ async function talkieAbort() {
 
 async function talkieQuery() {
   const recording = await closeRecording();
+
+  playSoundEffect("query");
+
   if (!recording) return;
   await new Promise((resolve) => setTimeout(resolve, 1000));
   const audioReadStream = Readable.from(await fs.readFile(recording.wavPath));
@@ -189,8 +198,26 @@ async function talkieQuery() {
     audioReadStream,
     "whisper-1"
   );
-  // todo, AI shit. right now, echo:
-  sayText(text);
+
+  history = [...history, { role: "user", content: text }];
+
+  console.log("User query: ", text);
+
+  const { data } = await openai.createChatCompletion({
+    messages: history,
+    model: "gpt-4",
+    temperature: 0.7,
+  });
+  const message = data.choices[0].message;
+
+  console.log("Result is " + message?.content);
+
+  if (!message) {
+    throw new Error("Message could not be extracted from result");
+  }
+  history = [...history, message];
+
+  sayText(message.content);
 }
 
 async function talkieSave() {
@@ -205,7 +232,7 @@ function asyncify<V>(promise: Promise<V>) {
 }
 
 function handleTalkieCommand(command: TalkieCommand) {
-  console.log("HANDLING COMMAND " + JSON.stringify(command));
+  console.log("Command: " + JSON.stringify(command));
   switch (command) {
     case "Abort":
       return asyncify(talkieAbort());
