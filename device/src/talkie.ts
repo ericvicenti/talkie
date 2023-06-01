@@ -9,13 +9,21 @@ import { Gpio } from "onoff";
 import * as dotenv from "dotenv";
 import { ChatCompletionRequestMessage, Configuration, OpenAIApi } from "openai";
 import { Readable } from "node:stream";
+import { preamble } from "./chat-preamble";
 
 dotenv.config();
 
 const makeMessage = (role, content) => ({ role, content });
 
 let history: ChatCompletionRequestMessage[] = [
-  { role: "system", content: "you are an AI assistant. answer tersely" },
+  // { role: "system", content: "you are an AI assistant. answer tersely" },
+  ...preamble(
+    {
+      shortName: process.env.USER_SHORTNAME || "TU",
+      fullName: process.env.USER_NAME || "Test User",
+    },
+    {}
+  ),
 ];
 
 const openai = new OpenAIApi(
@@ -152,7 +160,7 @@ async function closeRecording() {
 async function sayText(text: string) {
   const sayingId = new Date().toISOString();
   const sayingPath = `/home/pi/say/${sayingId}.mp3`;
-  const url = `https://api.elevenlabs.io/v1/text-to-speech/${bztVoiceId}`;
+  const url = `https://api.elevenlabs.io/v1/text-to-speech/8rhGl4iiilgahpSoYwwp`;
   const res = await fetch(url, {
     headers: {
       "content-type": "application/json",
@@ -161,7 +169,7 @@ async function sayText(text: string) {
     method: "post",
     body: JSON.stringify({
       text,
-      model_id: "eleven_monolingual_v1",
+      model_id: process.env.ELEVENLABS_MODEL || "eleven_monolingual_v1",
       voice_settings: {
         stability: 0.7,
         similarity_boost: 0,
@@ -207,23 +215,57 @@ async function talkieQuery() {
 
   history = [...history, { role: "user", content: text }];
 
-  console.log("User query: ", text);
-
+  console.log("FUll query", history);
   const { data } = await openai.createChatCompletion({
     messages: history,
-    model: "gpt-4",
+    model: process.env.OPENAI_MODEL || "gpt-3.5-turbo",
     temperature: 0.7,
   });
   const message = data.choices[0].message;
 
-  console.log("Result is " + message?.content);
+  console.log(":::" + message?.content);
 
   if (!message) {
     throw new Error("Message could not be extracted from result");
   }
   history = [...history, message];
 
-  sayText(message.content);
+  const matchedSay = message?.content.match(/\$say:(?<statement>.*)$/m);
+  const statementOutLout = matchedSay?.groups?.statement;
+  const matchedSayNothing = message?.content.match(/\$saynothing/m);
+
+  if (statementOutLout || matchedSayNothing) {
+    if (statementOutLout) sayText(statementOutLout);
+  } else {
+    // ERROR CORRECTION BEHAVIOR
+
+    history = [
+      ...history,
+      {
+        role: "system",
+        content:
+          "please continue by writing $say: with a statement to speak out loud, or if appropriate, stay silent with $saynothing",
+      },
+    ];
+
+    console.log("FUll query", history);
+    const { data } = await openai.createChatCompletion({
+      messages: history,
+      model: process.env.OPENAI_MODEL || "gpt-3.5-turbo",
+      temperature: 0.7,
+    });
+    const message = data.choices[0].message;
+
+    console.log(":::" + message?.content);
+
+    if (!message) {
+      throw new Error("Message could not be extracted from result");
+    }
+    history = [...history, message];
+
+    // fallback. the ai screwed up
+    console.log("todooooo", message);
+  }
 }
 
 async function talkieSave() {
