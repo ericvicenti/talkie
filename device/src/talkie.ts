@@ -44,11 +44,6 @@ const testButton = new Gpio(14, "in", "both", {
 
 const bztVoiceId = "8rhGl4iiilgahpSoYwwp";
 
-testButton.watch((err, isUp) => {
-  console.log("Button Interrupt! " + (isUp ? "(up)" : "(down)"));
-  if (isUp) talkieRecord();
-});
-
 const media = {
   discard: "FX-Discard.wav",
   query: "FX-Query.wav",
@@ -70,6 +65,17 @@ type TalkieState = {
 let talkieState: TalkieState = {
   isRecording: false,
 };
+
+testButton.watch((err, isUp) => {
+  console.log("Button Interrupt! " + (isUp ? "(up)" : "(down)"));
+  if (isUp) {
+    if (talkieState.isRecording) {
+      talkieQuery();
+    } else {
+      talkieRecord();
+    }
+  }
+});
 
 function updateTalkieState(updater: (v: TalkieState) => TalkieState) {
   const newState = updater(talkieState);
