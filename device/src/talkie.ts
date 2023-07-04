@@ -13,6 +13,68 @@ import { preamble } from "./chat-preamble";
 
 dotenv.config();
 
+const spi = require("spi-device");
+
+type PixelValue = { r: number; g: number; b: number };
+
+const LED_STRIP_COUNT = 17;
+
+function fillAllLeds(pixel: PixelValue) {
+  return Array(LED_STRIP_COUNT).fill(pixel);
+}
+
+let writeFrame: (leds: PixelValue[]) => void = () => {};
+
+const ledOutput = spi.open(0, 0, (err) => {
+  if (err) {
+    console.error("LED SPI open fail");
+    console.error(err);
+  }
+
+  writeFrame(
+    fillAllLeds({
+      r: 0,
+      g: 0.0,
+      b: 0.1,
+    })
+  );
+  console.log("openened");
+  writeFrame = (leds: PixelValue[]) => {
+    const sendBuffer = Buffer.from([
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      ...leds
+        .map((led) => {
+          const { r, g, b } = led;
+          return [0b111_00000 | 63, b * 255, g * 255, r * 255];
+        })
+        .flat(),
+      0xff,
+      0xff,
+      0xff,
+      0xff,
+    ]);
+    ledOutput.transfer(
+      [
+        {
+          sendBuffer,
+          receiveBuffer: Buffer.allocUnsafe(sendBuffer.length),
+          byteLength: sendBuffer.length,
+          speedHz: 20000,
+        },
+      ],
+      (err, resp) => {
+        if (err) {
+          console.error("LED write buffer fail");
+          console.error(err);
+        }
+      }
+    );
+  };
+});
+
 const makeMessage = (role, content) => ({ role, content });
 
 let history: ChatCompletionRequestMessage[] = [
@@ -50,7 +112,11 @@ const testButton = new Gpio(14, "in", "both", {
   debounceTimeout: 20,
 });
 
-const bztVoiceId = "8rhGl4iiilgahpSoYwwp";
+const buttonLed = new Gpio(4, "out", undefined, {
+  // debounceTimeout: 20,
+});
+
+buttonLed.writeSync(1);
 
 const media = {
   discard: "FX-Discard.wav",

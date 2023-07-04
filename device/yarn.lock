@@ -418,6 +418,11 @@ openai@^3.2.1:
     axios "^0.26.0"
     form-data "^4.0.0"
 
+pigpio-client@^1.5.2:
+  version "1.5.2"
+  resolved "https://registry.yarnpkg.com/pigpio-client/-/pigpio-client-1.5.2.tgz#17beb30d61f0cd502311a6a55c325f8b209bcc1f"
+  integrity sha512-s2NIPsbQRybxdcTJjjtmYvptd+pXqVX4pLHLxUaoMqmyrYS8kf3vKKQoMV/FTQ3PbtuWR5Tll+YAxJLU8EJYow==
+
 source-map-support@0.5.21:
   version "0.5.21"
   resolved "https://registry.yarnpkg.com/source-map-support/-/source-map-support-0.5.21.tgz#04fe7c7f9e1ed2d662233c28cb2b35b9f63f6e4f"
@@ -430,6 +435,14 @@ source-map@^0.6.0:
   version "0.6.1"
   resolved "https://registry.yarnpkg.com/source-map/-/source-map-0.6.1.tgz#74722af32e9614e9c287a8d0bbde48b5e2f1a263"
   integrity sha512-UjgapumWlbMhkBgzT7Ykc5YXUT46F0iKu8SGXq0bcwP5dz/h0Plj6enJqjz1Zbq2l5WaqYnrVbwWOWMyF3F47g==
+
+spi-device@^3.1.2:
+  version "3.1.2"
+  resolved "https://registry.yarnpkg.com/spi-device/-/spi-device-3.1.2.tgz#ba0f4b79638e8cb9a64840fe38176666cffb482e"
+  integrity sha512-5ubnDcpFjMAiO32j7Jrg/EMSmnInoh9LFzh/abVSJxTjCbmUQdRDVgNG5mRlOpMZc+SCHNSzqKVHGe8n0mVKwA==
+  dependencies:
+    bindings "^1.5.0"
+    nan "^2.14.2"
 
 tslib@2.4.0:
   version "2.4.0"
