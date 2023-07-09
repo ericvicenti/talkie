@@ -7,15 +7,90 @@ import { join } from "path";
 import { play, playMp3 } from "./audio";
 import { Gpio } from "onoff";
 import * as dotenv from "dotenv";
-import { ChatCompletionRequestMessage, Configuration, OpenAIApi } from "openai";
+import {
+  ChatCompletionRequestMessage,
+  ChatCompletionResponseMessage,
+  Configuration,
+  OpenAIApi,
+} from "openai";
 import { Readable } from "node:stream";
 import { preamble } from "./chat-preamble";
-
+import * as spi from "spi-device";
 dotenv.config();
 
-const spi = require("spi-device");
+// const spi = require("spi-device");
 
-type PixelValue = { r: number; g: number; b: number };
+type PixelValue = {
+  r: number; // from 0-1
+  g: number; // from 0-1
+  b: number; // from 0-1
+};
+type LedStrip = PixelValue[]; // 17 pixels exactly!
+
+function hsvToRgb(h: number, s: number, v: number): PixelValue {
+  const hi = Math.floor(h / 60) % 6;
+
+  const f = h / 60 - Math.floor(h / 60);
+  const p = v * (1 - s);
+  const q = v * (1 - s * f);
+  const t = v * (1 - s * (1 - f));
+
+  let r = 0,
+    g = 0,
+    b = 0;
+
+  switch (hi) {
+    case 0:
+      (r = v), (g = t), (b = p);
+      break;
+    case 1:
+      (r = q), (g = v), (b = p);
+      break;
+    case 2:
+      (r = p), (g = v), (b = t);
+      break;
+    case 3:
+      (r = p), (g = q), (b = v);
+      break;
+    case 4:
+      (r = t), (g = p), (b = v);
+      break;
+    case 5:
+      (r = v), (g = p), (b = q);
+      break;
+  }
+
+  return { r, g, b };
+}
+
+function rainbowAnimation(timeMS: number, speed = 0.1): LedStrip {
+  const leds: LedStrip = [];
+  const saturation = 1;
+  const value = 0.3; // Limit the combined brightness
+
+  for (let i = 0; i < 17; i++) {
+    // Compute the hue based on time and position, to get a slow moving rainbow
+    const hue = (timeMS * speed + (i * 360) / 17) % 360;
+    leds.push(hsvToRgb(hue, saturation, value));
+  }
+
+  return leds;
+}
+
+function wavey(
+  now: number,
+  period = 2_000,
+  pixel: PixelValue,
+  isSmallWave = false
+): LedStrip {
+  const pulseValue = Math.sin((now / period) * Math.PI * 2);
+  const fullWavePixel = Math.floor(((pulseValue + 1) * LED_STRIP_COUNT) / 2);
+  const smallWavePixel = Math.floor(((pulseValue + 1) * 5) / 2) + 6;
+  const frame = fillAllLeds({ r: 0, g: 0, b: 0 });
+  const index = isSmallWave ? smallWavePixel : fullWavePixel;
+  frame[index] = pixel;
+  return frame;
+}
 
 const LED_STRIP_COUNT = 17;
 
@@ -23,13 +98,66 @@ function fillAllLeds(pixel: PixelValue) {
   return Array(LED_STRIP_COUNT).fill(pixel);
 }
 
-let writeFrame: (leds: PixelValue[]) => void = () => {};
+const OFF_LEDS = fillAllLeds({
+  r: 0,
+  g: 0,
+  b: 0,
+});
+
+let writeFrame: (leds: PixelValue[]) => Promise<void> = async () => {};
+
+let frameCount = 0;
+
+type TalkieState = {
+  isRecording: boolean;
+  loadingState: null | "transcribe" | "infer" | "speak";
+  // isTranscribing: boolean;
+  // isInferring: boolean;
+};
+
+let talkieState: TalkieState = {
+  isRecording: false,
+  loadingState: null,
+};
+let frameCountSecAgo = 0;
+setInterval(() => {
+  const recentFrames = frameCount - frameCountSecAgo;
+  process.stdout.write(" fps: " + recentFrames + " \n");
+  frameCountSecAgo = frameCount;
+}, 1_000);
+async function writeCurrentLEDFrame() {
+  frameCount += 1;
+  const now = Date.now();
+
+  const frame = rainbowAnimation(now);
+  // const frame = wavey(now, 500, { r: 0.2, g: 0, b: 0 }, true);
+
+  await new Promise((resolve) => setTimeout(resolve, 1000 / 66));
+
+  await writeFrame(frame);
+}
+
+// const startTime = Date.now()
+// setInterval(() => {
+//   frameCount
+// }, 2000)
+
+async function scheduleFrameWrite() {
+  writeCurrentLEDFrame()
+    .then(scheduleFrameWrite)
+    .catch((e) => {
+      console.error("failed to write LED frame", e);
+    });
+}
+scheduleFrameWrite();
 
 const ledOutput = spi.open(0, 0, (err) => {
   if (err) {
     console.error("LED SPI open fail");
     console.error(err);
+    return;
   }
+  console.log("ledou", ledOutput.getOptionsSync());
 
   writeFrame(
     fillAllLeds({
@@ -39,42 +167,78 @@ const ledOutput = spi.open(0, 0, (err) => {
     })
   );
   console.log("openened");
-  writeFrame = (leds: PixelValue[]) => {
-    const sendBuffer = Buffer.from([
-      0x00,
-      0x00,
-      0x00,
-      0x00,
-      ...leds
-        .map((led) => {
-          const { r, g, b } = led;
-          return [0b111_00000 | 63, b * 255, g * 255, r * 255];
-        })
-        .flat(),
-      0xff,
-      0xff,
-      0xff,
-      0xff,
-    ]);
-    ledOutput.transfer(
-      [
-        {
-          sendBuffer,
-          receiveBuffer: Buffer.allocUnsafe(sendBuffer.length),
-          byteLength: sendBuffer.length,
-          speedHz: 20000,
-        },
-      ],
-      (err, resp) => {
-        if (err) {
-          console.error("LED write buffer fail");
-          console.error(err);
+  const sendBuffer = Buffer.from([
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+    ...OFF_LEDS.map((led) => {
+      const { r, g, b } = led;
+      return [0b111_00000 | 31, b * 255, g * 255, r * 255];
+    }).flat(),
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+  ]);
+  const receiveBuffer = Buffer.allocUnsafe(sendBuffer.length);
+  writeFrame = async (leds: PixelValue[]) => {
+    leds.forEach((led, ledIndex) => {
+      const { r, g, b } = led;
+      const offset = (ledIndex + 1) * 4;
+      sendBuffer[offset + 0] = 0b111_00000 | 31;
+      sendBuffer[offset + 1] = b * 255;
+      sendBuffer[offset + 2] = g * 255;
+      sendBuffer[offset + 3] = r * 255;
+    });
+
+    // const sendBuffer = Buffer.from([
+    //   0x00,
+    //   0x00,
+    //   0x00,
+    //   0x00,
+    //   ...leds
+    //     .map((led) => {
+    //       const { r, g, b } = led;
+    //       return [0b111_00000 | 31, b * 255, g * 255, r * 255];
+    //     })
+    //     .flat(),
+    //   0xff,
+    //   0xff,
+    //   0xff,
+    //   0xff,
+    // ]);
+
+    // if (frameCount < 50) {
+    process.stdout.write("\r" + frameCount);
+    // process.stdout.write(sendBuffer.toString("hex"));
+    // }
+    const before = Date.now();
+    await new Promise<void>((resolve, reject) =>
+      ledOutput.transfer(
+        [
+          {
+            sendBuffer,
+            receiveBuffer,
+            byteLength: sendBuffer.length,
+            speedHz: 1_000_000,
+          },
+        ],
+        (err, resp) => {
+          if (err) {
+            reject(err);
+            console.error("LED write buffer fail");
+            console.error(err);
+          } else {
+            resolve();
+          }
         }
-      }
+      )
     );
+    const after = Date.now();
+    process.stdout.write(" duration: " + (after - before) + "  ");
   };
 });
-
 const makeMessage = (role, content) => ({ role, content });
 
 let history: ChatCompletionRequestMessage[] = [
@@ -132,14 +296,6 @@ function playSoundEffect(key: keyof typeof media) {
   play(soundPath);
 }
 
-type TalkieState = {
-  isRecording: boolean;
-};
-
-let talkieState: TalkieState = {
-  isRecording: false,
-};
-
 testButton.watch((err, isUp) => {
   console.log("Button Interrupt! " + (isUp ? "(up)" : "(down)"));
   if (isUp) {
@@ -167,11 +323,11 @@ let completeRecord:
   | null = null;
 
 async function talkieRecord() {
+  if (talkieState.isRecording) return;
   playSoundEffect("record");
 
   const recordStartTime = Date.now();
   const recordId = new Date().toISOString();
-  if (talkieState.isRecording) return;
   audioWriteStream = fs.createWriteStream(
     `/home/pi/recordings/recording-${recordId}.pcm`,
     { flags: "w" }
@@ -224,8 +380,11 @@ async function closeRecording() {
 }
 
 async function sayText(text: string) {
+  updateTalkieState((s) => ({ ...s, loadingState: "infer" }));
+
   const sayingId = new Date().toISOString();
   const sayingPath = `/home/pi/say/${sayingId}.mp3`;
+  // const someVoice = 8rhGl4iiilgahpSoYwwp
   const url = `https://api.elevenlabs.io/v1/text-to-speech/8rhGl4iiilgahpSoYwwp`;
   const res = await fetch(url, {
     headers: {
@@ -250,8 +409,10 @@ async function sayText(text: string) {
   const arrayBuffer = await blob.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
   await fs.writeFile(sayingPath, buffer);
+  updateTalkieState((s) => ({ ...s, loadingState: "speak" }));
 
-  playMp3(sayingPath);
+  await playMp3(sayingPath);
+  updateTalkieState((s) => ({ ...s, loadingState: null }));
 }
 
 async function talkieAbort() {
@@ -271,6 +432,8 @@ async function talkieQuery() {
   const audioReadStream = Readable.from(await fs.readFile(recording.wavPath));
   // @ts-ignore
   audioReadStream.path = "conversation.wav";
+  updateTalkieState((s) => ({ ...s, loadingState: "transcribe" }));
+
   const {
     data: { text },
   } = await openai.createTranscription(
@@ -279,9 +442,10 @@ async function talkieQuery() {
     "whisper-1"
   );
 
+  updateTalkieState((s) => ({ ...s, loadingState: "infer" }));
+
   history = [...history, { role: "user", content: text }];
 
-  console.log("FUll query", history);
   const { data } = await openai.createChatCompletion({
     messages: history,
     model: process.env.OPENAI_MODEL || "gpt-3.5-turbo",
@@ -295,6 +459,10 @@ async function talkieQuery() {
     throw new Error("Message could not be extracted from result");
   }
   history = [...history, message];
+
+  // function handleCompletion(message: ChatCompletionResponseMessage) {
+
+  // }
 
   const matchedSay = message?.content.match(/\$say:(?<statement>.*)$/m);
   const statementOutLout = matchedSay?.groups?.statement;
@@ -314,7 +482,7 @@ async function talkieQuery() {
       },
     ];
 
-    console.log("FUll query", history);
+    // console.log("FUll query", history);
     const { data } = await openai.createChatCompletion({
       messages: history,
       model: process.env.OPENAI_MODEL || "gpt-3.5-turbo",
